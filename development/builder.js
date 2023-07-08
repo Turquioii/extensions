@@ -2,6 +2,7 @@ const fs = require('fs');
 const pathUtil = require('path');
 const sizeOfImage = require('image-size');
 const renderTemplate = require('./render-template');
+const renderDocs = require('./render-docs');
 const compatibilityAliases = require('./compatibility-aliases');
 
 /**
@@ -110,13 +111,29 @@ IMAGE_FORMATS.set('.png', ImageFile);
 IMAGE_FORMATS.set('.jpg', ImageFile);
 IMAGE_FORMATS.set('.svg', SVGFile);
 
+class DocsFile extends DiskFile {
+  constructor (path) {
+    super(path);
+    this.getDiskPath = null;
+  }
+
+  read () {
+    const markdown = super.read().toString('utf-8');
+    return renderDocs(markdown);
+  }
+
+  getType () {
+    return '.html';
+  }
+}
+
 class Build {
   constructor () {
     this.files = {};
   }
 
   getFile (path) {
-    return this.files[path] || this.files[`${path}index.html`] || null;
+    return this.files[path] || this.files[`${path}.html`] || this.files[`${path}index.html`] || null;
   }
 
   export (root) {
@@ -159,6 +176,7 @@ class Builder {
     this.extensionsRoot = pathUtil.join(__dirname, '..', 'extensions');
     this.websiteRoot = pathUtil.join(__dirname, '..', 'website');
     this.imagesRoot = pathUtil.join(__dirname, '..', 'images');
+    this.docsRoot = pathUtil.join(__dirname, '..', 'docs');
   }
 
   build () {
@@ -177,6 +195,17 @@ class Builder {
       }
       build.files[`/images/${imageFilename}`] = new ImageFileClass(path);
     }
+
+    for (const [docsFilename, path] of readDirectory(this.docsRoot)) {
+      if (!docsFilename.endsWith('.md')) {
+        continue;
+      }
+      const extensionId = docsFilename.split('.')[0];
+      build.files[`/${extensionId}.html`] = new DocsFile(path);
+    }
+
+    const scratchblocksPath = pathUtil.join(__dirname, '..', 'node_modules', 'scratchblocks', 'build', 'scratchblocks.min.js');
+    build.files['/docs-internal/scratchblocks.js'] = new DiskFile(scratchblocksPath);
 
     const extensionFiles = [];
     for (const [extensionFilename, path] of readDirectory(this.extensionsRoot)) {
@@ -240,6 +269,7 @@ class Builder {
       `${this.extensionsRoot}/**/*`,
       `${this.imagesRoot}/**/*`,
       `${this.websiteRoot}/**/*`,
+      `${this.docsRoot}/**/*`,
     ], {
       ignoreInitial: true
     }).on('all', () => {
